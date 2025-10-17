@@ -429,6 +429,235 @@ class CodeGenerator:
         self.assembly_code.append("    INT 0x80")
         
         return self.assembly_code
+        
+# ============================================================================
+# MINIMAL GUI APPLICATION
+# ============================================================================
+
+class CompilerGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Mini Compiler")
+        self.root.geometry("1200x700")
+        self.root.configure(bg='white')
+        
+        # Initialize compiler components
+        self.lexer = Lexer()
+        self.lexer.build()
+        self.parser = Parser()
+        self.parser.build()
+        self.code_generator = CodeGenerator()
+        
+        self.setup_ui()
+        
+    def setup_ui(self):
+        # Title bar
+        title_frame = tk.Frame(self.root, bg='#f5f5f5', height=50)
+        title_frame.pack(fill=tk.X, padx=0, pady=0)
+        title_frame.pack_propagate(False)
+        
+        title = tk.Label(title_frame, text="Mini Compiler", 
+                        font=('Arial', 16, 'bold'), bg='#f5f5f5', fg='#333')
+        title.pack(pady=12)
+        
+        # Main container
+        main_container = tk.Frame(self.root, bg='white')
+        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        # Input section
+        input_frame = tk.Frame(main_container, bg='white')
+        input_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        input_label = tk.Label(input_frame, text="Source Code", 
+                              font=('Arial', 11, 'bold'), bg='white', fg='#333')
+        input_label.pack(anchor='w', pady=(0, 5))
+        
+        self.input_text = scrolledtext.ScrolledText(
+            input_frame, 
+            font=('Consolas', 10),
+            bg='#fafafa',
+            fg='#333',
+            relief=tk.SOLID,
+            borderwidth=1,
+            padx=8,
+            pady=8
+        )
+        self.input_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Sample code
+        sample_code = """int a;
+int b;
+a = 5;
+b = 7;
+
+int sum;
+sum = a + b;
+print(sum);
+
+if (a < b) {
+    int diff;
+    diff = b - a;
+    print(diff);
+}
+
+int i;
+i = 0;
+while (i < 3) {
+    print(i);
+    i = i + 1;
+}
+
+"""
+        self.input_text.insert('1.0', sample_code)
+        
+        # Button section
+        button_frame = tk.Frame(main_container, bg='white')
+        button_frame.pack(fill=tk.X, pady=10)
+        
+        compile_btn = tk.Button(
+            button_frame, 
+            text="Compile", 
+            command=self.compile_code,
+            font=('Arial', 10),
+            bg='#007bff',
+            fg='white',
+            relief=tk.FLAT,
+            padx=30,
+            pady=8,
+            cursor='hand2'
+        )
+        compile_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        clear_btn = tk.Button(
+            button_frame, 
+            text="Clear", 
+            command=self.clear_all,
+            font=('Arial', 10),
+            bg='#6c757d',
+            fg='white',
+            relief=tk.FLAT,
+            padx=30,
+            pady=8,
+            cursor='hand2'
+        )
+        clear_btn.pack(side=tk.LEFT)
+        
+        # Output section with tabs
+        output_frame = tk.Frame(main_container, bg='white')
+        output_frame.pack(fill=tk.BOTH, expand=True)
+        
+        output_label = tk.Label(output_frame, text="Output", 
+                               font=('Arial', 11, 'bold'), bg='white', fg='#333')
+        output_label.pack(anchor='w', pady=(0, 5))
+        
+        # Create notebook for tabs
+        style = ttk.Style()
+        style.theme_use('default')
+        style.configure('TNotebook', background='white', borderwidth=0)
+        style.configure('TNotebook.Tab', padding=[12, 8], font=('Arial', 9))
+        
+        self.notebook = ttk.Notebook(output_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Create tabs
+        self.create_output_tab("Tokens", "tokens_text")
+        self.create_output_tab("Symbol Table", "symbol_text")
+        self.create_output_tab("Intermediate Code", "intermediate_text")
+        self.create_output_tab("Assembly", "assembly_text")
+        self.create_output_tab("Errors", "errors_text")
+        
+    def create_output_tab(self, title, attr_name):
+        frame = tk.Frame(self.notebook, bg='white')
+        self.notebook.add(frame, text=title)
+        
+        text_widget = scrolledtext.ScrolledText(
+            frame,
+            font=('Consolas', 9),
+            bg='#fafafa',
+            fg='#333',
+            relief=tk.SOLID,
+            borderwidth=1,
+            padx=8,
+            pady=8
+        )
+        text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        setattr(self, attr_name, text_widget)
+        
+    def compile_code(self):
+        source_code = self.input_text.get('1.0', tk.END)
+        
+        # Clear previous outputs
+        for attr in ['tokens_text', 'symbol_text', 'intermediate_text', 
+                     'assembly_text', 'errors_text']:
+            getattr(self, attr).delete('1.0', tk.END)
+        
+        # Lexical Analysis
+        tokens, lex_errors = self.lexer.tokenize(source_code)
+        
+        token_output = "Token Type       Value           Line\n"
+        token_output += "-" * 45 + "\n"
+        for token in tokens:
+            token_output += f"{token['type']:<16} {str(token['value']):<15} {token['line']}\n"
+        
+        self.tokens_text.insert('1.0', token_output)
+        
+        # Syntax and Semantic Analysis
+        self.parser.parse(source_code)
+        
+        # Symbol Table
+        symbol_output = "Name             Type       Scope\n"
+        symbol_output += "-" * 45 + "\n"
+        for symbol in self.parser.symbol_table.get_all():
+            symbol_output += f"{symbol['name']:<16} {symbol['type']:<10} {symbol['scope']}\n"
+        
+        self.symbol_text.insert('1.0', symbol_output)
+        
+        # Intermediate Code
+        ic_output = ""
+        for i, inst in enumerate(self.parser.intermediate_code, 1):
+            op = inst['op']
+            arg1 = inst['arg1']
+            arg2 = inst['arg2']
+            result = inst['result']
+            
+            if op == '=':
+                ic_output += f"{i}. {result} = {arg1}\n"
+            elif op in ['+', '-', '*', '/', '%']:
+                ic_output += f"{i}. {result} = {arg1} {op} {arg2}\n"
+            elif op == 'label':
+                ic_output += f"{i}. {arg1}:\n"
+            elif op == 'goto':
+                ic_output += f"{i}. goto {arg1}\n"
+            elif op == 'if_false':
+                ic_output += f"{i}. if_false {arg1} goto {arg2}\n"
+            elif op == 'print':
+                ic_output += f"{i}. print {arg1}\n"
+            else:
+                ic_output += f"{i}. {result} = {arg1} {op} {arg2}\n"
+        
+        self.intermediate_text.insert('1.0', ic_output)
+        
+        # Assembly Code
+        assembly = self.code_generator.generate(self.parser.intermediate_code)
+        assembly_output = "\n".join(assembly)
+        self.assembly_text.insert('1.0', assembly_output)
+        
+        # Errors
+        all_errors = lex_errors + self.parser.errors
+        if all_errors:
+            errors_output = ""
+            for i, error in enumerate(all_errors, 1):
+                errors_output += f"{i}. {error}\n"
+            self.errors_text.insert('1.0', errors_output)
+        else:
+            self.errors_text.insert('1.0', "No errors found.")
+        
+    def clear_all(self):
+        self.input_text.delete('1.0', tk.END)
+        for attr in ['tokens_text', 'symbol_text', 'intermediate_text', 
+                     'assembly_text', 'errors_text']:
+            getattr(self, attr).delete('1.0', tk.END)
+
 
 
 
