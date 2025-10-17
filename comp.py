@@ -657,6 +657,16 @@ while (i < 3) {
         for attr in ['tokens_text', 'symbol_text', 'intermediate_text', 
                      'assembly_text', 'errors_text']:
             getattr(self, attr).delete('1.0', tk.END)
+                         
+# ============================================================================
+# MAIN
+# ============================================================================
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = CompilerGUI(root)
+    root.mainloop()
+                         
 
 
 
