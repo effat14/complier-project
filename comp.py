@@ -106,3 +106,36 @@ class Lexer:
             })
         
         return self.tokens_list, self.errors
+
+
+# ============================================================================
+# SYMBOL TABLE
+# ============================================================================
+
+class SymbolTable:
+    def __init__(self):
+        self.symbols = {}
+        self.scope_stack = ['global']
+        
+    def insert(self, name, symbol_type, value=None, scope=None):
+        if scope is None:
+            scope = self.scope_stack[-1]
+        
+        key = f"{scope}:{name}"
+        self.symbols[key] = {
+            'name': name,
+            'type': symbol_type,
+            'value': value,
+            'scope': scope
+        }
+    
+    def lookup(self, name):
+        for scope in reversed(self.scope_stack):
+            key = f"{scope}:{name}"
+            if key in self.symbols:
+                return self.symbols[key]
+        return None
+    
+    def get_all(self):
+        return list(self.symbols.values())
+
