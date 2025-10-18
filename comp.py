@@ -39,7 +39,6 @@ class Lexer:
     t_PLUS = r'\+'
     t_MINUS = r'-'
     t_TIMES = r'\*'
-    t_DIVIDE = r'/'
     t_MODULO = r'%'
     t_ASSIGN = r'='
     t_EQ = r'=='
@@ -57,6 +56,21 @@ class Lexer:
 
     # Ignored characters (spaces and tabs)
     t_ignore = ' \t'
+
+    # Comments - Must be defined before DIVIDE token
+    def t_COMMENT_MULTI(self, t):
+        r'/\*(.|\n)*?\*/'
+        t.lexer.lineno += t.value.count('\n')
+        pass  # No return value. Token discarded
+
+    def t_COMMENT_SINGLE(self, t):
+        r'//.*'
+        pass  # No return value. Token discarded
+
+    # DIVIDE token - Must come after comment rules
+    def t_DIVIDE(self, t):
+        r'/'
+        return t
 
     def t_FLOAT_NUM(self, t):
         r'\d+\.\d+'
@@ -116,29 +130,63 @@ class SymbolTable:
     def __init__(self):
         self.symbols = {}
         self.scope_stack = ['global']
+        self.scope_counter = 0
+        
+    def enter_scope(self, scope_type='block'):
+        """Enter a new scope (e.g., if, while, for, block)"""
+        self.scope_counter += 1
+        scope_name = f"{scope_type}_{self.scope_counter}"
+        self.scope_stack.append(scope_name)
+        return scope_name
+    
+    def exit_scope(self):
+        """Exit the current scope"""
+        if len(self.scope_stack) > 1:
+            self.scope_stack.pop()
+    
+    def get_current_scope(self):
+        """Get the current scope name"""
+        return self.scope_stack[-1]
         
     def insert(self, name, symbol_type, value=None, scope=None):
+        """Insert a symbol into the current scope"""
         if scope is None:
             scope = self.scope_stack[-1]
         
         key = f"{scope}:{name}"
+        
+        # Check if variable already exists in current scope
+        if key in self.symbols:
+            return False  # Already declared in this scope
+        
         self.symbols[key] = {
             'name': name,
             'type': symbol_type,
             'value': value,
             'scope': scope
         }
+        return True
     
     def lookup(self, name):
+        """Look up a symbol starting from the current scope and moving up"""
         for scope in reversed(self.scope_stack):
             key = f"{scope}:{name}"
             if key in self.symbols:
                 return self.symbols[key]
         return None
     
+    def lookup_current_scope(self, name):
+        """Look up a symbol only in the current scope"""
+        scope = self.scope_stack[-1]
+        key = f"{scope}:{name}"
+        return self.symbols.get(key, None)
+    
     def get_all(self):
+        """Get all symbols"""
         return list(self.symbols.values())
-        ============================================================================
+
+
+# ============================================================================
 # PARSER AND SEMANTIC ANALYZER
 # ============================================================================
 
@@ -195,17 +243,19 @@ class Parser:
         var_type = p[1]
         var_name = p[2]
         
-        if self.symbol_table.lookup(var_name):
-            self.errors.append(f"Variable '{var_name}' already declared")
+        # Check if variable already exists in current scope
+        if self.symbol_table.lookup_current_scope(var_name):
+            self.errors.append(f"Variable '{var_name}' already declared in current scope")
         else:
+            current_scope = self.symbol_table.get_current_scope()
             if len(p) == 4:
                 self.symbol_table.insert(var_name, var_type)
-                p[0] = ('declaration', var_type, var_name)
+                p[0] = ('declaration', var_type, var_name, current_scope)
             else:
                 value = p[4]
                 self.symbol_table.insert(var_name, var_type, value)
                 self.emit('=', value, None, var_name)
-                p[0] = ('declaration_init', var_type, var_name, value)
+                p[0] = ('declaration_init', var_type, var_name, value, current_scope)
     
     def p_type(self, p):
         '''type : INT
@@ -217,6 +267,7 @@ class Parser:
         var_name = p[1]
         expr = p[3]
         
+        # Check if variable is declared in any accessible scope
         if not self.symbol_table.lookup(var_name):
             self.errors.append(f"Variable '{var_name}' not declared")
         
@@ -263,8 +314,18 @@ class Parser:
         p[0] = ('while', cond, p[5])
     
     def p_block(self, p):
-        '''block : LBRACE statement_list RBRACE'''
-        p[0] = ('block', p[2])
+        '''block : LBRACE statement_list RBRACE
+                | LBRACE RBRACE'''
+        # Enter new scope when opening brace
+        scope = self.symbol_table.enter_scope('block')
+        
+        if len(p) == 4:
+            p[0] = ('block', p[2], scope)
+        else:
+            p[0] = ('block', [], scope)
+        
+        # Exit scope when closing brace
+        self.symbol_table.exit_scope()
     
     def p_condition(self, p):
         '''condition : expression relop expression'''
@@ -334,10 +395,12 @@ class Parser:
         self.label_count = 0
         self.errors = []
         self.parse_tree = []
+        self.symbol_table = SymbolTable()  # Reset symbol table
         
         result = self.parser.parse(data)
         return result
-        
+
+
 # ============================================================================
 # CODE GENERATOR (Assembly)
 # ============================================================================
@@ -429,7 +492,8 @@ class CodeGenerator:
         self.assembly_code.append("    INT 0x80")
         
         return self.assembly_code
-        
+
+
 # ============================================================================
 # MINIMAL GUI APPLICATION
 # ============================================================================
@@ -484,29 +548,98 @@ class CompilerGUI:
         )
         self.input_text.pack(fill=tk.BOTH, expand=True)
         
-        # Sample code
-        sample_code = """int a;
-int b;
-a = 5;
-b = 7;
+        # Comprehensive sample code with all features
+        sample_code = """// Single-line comment test
+/* Multi-line comment test
+   This demonstrates comment handling */
 
-int sum;
-sum = a + b;
-print(sum);
+// Global variables
+int globalX = 100;
+int globalY = 200;
 
-if (a < b) {
-    int diff;
-    diff = b - a;
-    print(diff);
+// Arithmetic operations test
+int sum = globalX + globalY;
+int diff = globalY - globalX;
+int product = globalX * 2;
+int quotient = globalY / 10;
+int remainder = globalY % 3;
+
+print(sum);      // Should print 300
+print(diff);     // Should print 100
+print(product);  // Should print 200
+
+// Conditional statement with scoped variables
+if (globalX < globalY) {
+    // Variables inside if block (local scope)
+    int localA = 50;
+    int localB = 75;
+    int localSum = localA + localB;
+    print(localSum);  // Should print 125
 }
 
-int i;
-i = 0;
-while (i < 3) {
-    print(i);
-    i = i + 1;
+/* Test else block with different scope */
+if (globalX > 500) {
+    int temp = 1;
+} else {
+    // This is a separate scope
+    int temp = 2;  // Different from temp in if block
+    int result = temp * 10;
+    print(result);  // Should print 20
 }
 
+// While loop with scoped counter
+int outerCounter = 0;
+while (outerCounter < 3) {
+    // Loop body creates new scope
+    int loopVar = outerCounter * 10;
+    print(loopVar);
+    outerCounter = outerCounter + 1;
+}
+
+// Nested blocks to test scope depth
+{
+    int level1 = 10;
+    {
+        int level2 = 20;
+        int combined = level1 + level2;  // Can access level1
+        print(combined);  // Should print 30
+    }
+    // level2 is not accessible here
+}
+
+// Float operations
+float pi = 3.14;
+float radius = 5.0;
+float area = pi * radius;
+print(area);
+
+// Complex expression
+int a = 10;
+int b = 5;
+int c = 3;
+int result = a + b * c - a / b;  // Tests operator precedence
+print(result);  // Should print 23 (10 + 15 - 2)
+
+// Relational operators test
+if (a == 10) {
+    print(1);
+}
+
+if (b != 10) {
+    print(2);
+}
+
+if (a >= b) {
+    print(3);
+}
+
+if (b <= a) {
+    print(4);
+}
+
+// Final message
+int done = 1;
+print(done);
 """
         self.input_text.insert('1.0', sample_code)
         
@@ -650,14 +783,15 @@ while (i < 3) {
                 errors_output += f"{i}. {error}\n"
             self.errors_text.insert('1.0', errors_output)
         else:
-            self.errors_text.insert('1.0', "No errors found.")
+            self.errors_text.insert('1.0', "✓ No errors found. Compilation successful!")
         
     def clear_all(self):
         self.input_text.delete('1.0', tk.END)
         for attr in ['tokens_text', 'symbol_text', 'intermediate_text', 
                      'assembly_text', 'errors_text']:
             getattr(self, attr).delete('1.0', tk.END)
-                         
+
+
 # ============================================================================
 # MAIN
 # ============================================================================
@@ -666,8 +800,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = CompilerGUI(root)
     root.mainloop()
-                         
-
-
-
-
